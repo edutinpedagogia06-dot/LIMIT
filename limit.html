@@ -1192,44 +1192,127 @@ function paintColumn() {
    Endpoint: https://emkc.org/api/v2/piston/execute
    Respuesta: { run: { stdout, stderr, code }, compile: { stderr } }
 ════════════════════════════════════════════════════════════════ */
-const PISTON_EXEC = 'https://emkc.org/api/v2/piston/execute';
-const PISTON_RT   = 'https://emkc.org/api/v2/piston/runtimes';
-let   _pistonRT   = null;
+/* ════════════════════════════════════════════════════════════════
+   EJECUCIÓN DE CÓDIGO
+   ────────────────────────────────────────────────────────────
+   • HTML / CSS   → iframe del navegador
+   • JavaScript   → Web Worker aislado (sin acceso al scope global,
+                    sin necesidad de API externa)
+   • JSON/Markdown→ formateador local
+   • Resto        → Piston API pública (sin auth)
+════════════════════════════════════════════════════════════════ */
 
-async function getPistonRuntimes() {
-    if (_pistonRT) return _pistonRT;
-    _pistonRT = {};
-    try {
-        const res  = await fetch(PISTON_RT);
-        const list = await res.json();
-        // Guardar primera versión disponible por lenguaje + aliases
-        list.forEach(rt => {
-            if (!_pistonRT[rt.language]) _pistonRT[rt.language] = rt.version;
-            (rt.aliases || []).forEach(a => { if (!_pistonRT[a]) _pistonRT[a] = rt.version; });
-        });
-    } catch(_) {
-        // Versiones de respaldo
-        Object.assign(_pistonRT, { javascript:'18.15.0', python:'3.10.0', java:'15.0.2', bash:'5.2.0', typescript:'5.0.3', lua:'5.4.4', ruby:'3.0.1', c:'10.2.0', cpp:'10.2.0' });
-    }
-    return _pistonRT;
+/* Versiones fijas — evitamos la llamada a /runtimes que puede fallar */
+const PISTON_VERSIONS = {
+    python:     '3.10.0',
+    java:       '15.0.2',
+    bash:       '5.2.0',
+    typescript: '5.0.3',
+    lua:        '5.4.4',
+    ruby:       '3.0.1',
+    c:          '10.2.0',
+    cpp:        '10.2.0',
+    rust:       '1.68.2',
+    go:         '1.16.2',
+    php:        '8.2.3',
+    csharp:     '6.12.0',
+    kotlin:     '1.8.20',
+    swift:      '5.3.3',
+    r:          '4.1.1',
+};
+
+const PISTON_FILENAMES = {
+    python:'main.py', java:'Main.java', bash:'main.sh',
+    typescript:'index.ts', lua:'main.lua', ruby:'main.rb',
+    c:'main.c', cpp:'main.cpp', rust:'main.rs', go:'main.go',
+    php:'main.php', csharp:'main.cs', kotlin:'main.kt',
+    swift:'main.swift', r:'main.r',
+};
+
+const BROWSER_LANGS = ['html', 'css'];
+const DISPLAY_ONLY  = ['json', 'markdown'];
+const PISTON_LANGS  = Object.keys(PISTON_VERSIONS);
+
+/* ── Ejecutar JavaScript en un Web Worker aislado ─────────────
+   El Worker corre en un contexto completamente separado:
+   sin window, sin document, sin supabase, sin variables globales
+   del documento padre. Captura console.log/error/warn.         */
+function runJavaScriptInWorker(code) {
+    return new Promise(resolve => {
+        const lines = [];
+        const workerSrc = `
+self.console = {
+    log:   (...a) => postMessage({ type:'log',   text: a.map(x => typeof x === 'object' ? JSON.stringify(x,null,2) : String(x)).join(' ') }),
+    error: (...a) => postMessage({ type:'error', text: a.join(' ') }),
+    warn:  (...a) => postMessage({ type:'warn',  text: a.join(' ') }),
+    info:  (...a) => postMessage({ type:'log',   text: a.join(' ') }),
+};
+try {
+    ${code}
+} catch(e) {
+    postMessage({ type:'error', text: e.message });
+}
+postMessage({ type:'done' });
+`;
+        const blob   = new Blob([workerSrc], { type: 'application/javascript' });
+        const url    = URL.createObjectURL(blob);
+        const worker = new Worker(url);
+        const timeout = setTimeout(() => {
+            worker.terminate();
+            URL.revokeObjectURL(url);
+            resolve({ lines, timedOut: true });
+        }, 10000); /* 10s timeout */
+
+        worker.onmessage = e => {
+            const { type, text } = e.data;
+            if (type === 'done') {
+                clearTimeout(timeout);
+                worker.terminate();
+                URL.revokeObjectURL(url);
+                resolve({ lines, timedOut: false });
+            } else {
+                lines.push({ type, text });
+            }
+        };
+        worker.onerror = err => {
+            clearTimeout(timeout);
+            worker.terminate();
+            URL.revokeObjectURL(url);
+            lines.push({ type:'error', text: err.message || 'Error desconocido' });
+            resolve({ lines, timedOut: false });
+        };
+    });
 }
 
-const PISTON_FILENAMES = { java:'Main.java', python:'main.py', javascript:'index.js', bash:'main.sh', typescript:'index.ts', lua:'main.lua', ruby:'main.rb', c:'main.c', cpp:'main.cpp' };
-const BROWSER_LANGS    = ['html', 'css'];
-const DISPLAY_ONLY     = ['json', 'markdown'];
-const PISTON_LANGS     = ['python','java','bash','typescript','lua','ruby','c','cpp'];  // js corre inline
-
+/* ── Piston para lenguajes compilados ─────────────────────── */
 async function pistonExecute(lang, code) {
-    const rts = await getPistonRuntimes();
-    const ver = rts[lang];
-    if (!ver) throw new Error(`"${lang}" no disponible en Piston.`);
-    const res = await fetch(PISTON_EXEC, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ language: lang, version: ver, files: [{ name: PISTON_FILENAMES[lang] || 'main.txt', content: code }] })
-    });
-    if (!res.ok) throw new Error(`Piston HTTP ${res.status}`);
-    return await res.json();
+    const ver  = PISTON_VERSIONS[lang];
+    if (!ver) throw new Error(`"${lang}" no soportado.`);
+    const name = PISTON_FILENAMES[lang] || 'main.txt';
+
+    /* Intentar con el endpoint público de emkc.org */
+    const endpoints = [
+        'https://emkc.org/api/v2/piston/execute',
+    ];
+
+    let lastErr = null;
+    for (const url of endpoints) {
+        try {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ language: lang, version: ver,
+                    files: [{ name, content: code }] })
+            });
+            if (res.status === 401) throw new Error('API requiere autenticación (401)');
+            if (res.status === 429) throw new Error('Límite de peticiones alcanzado (429). Espera unos segundos.');
+            if (!res.ok) throw new Error(`Piston HTTP ${res.status}`);
+            return await res.json();
+        } catch(e) {
+            lastErr = e;
+        }
+    }
+    throw lastErr;
 }
 
 async function launchPreview() {
@@ -1274,22 +1357,30 @@ async function launchPreview() {
         return;
     }
 
-    /* ── JavaScript → iframe aislado (sin coste de API) ── */
+    /* ── JavaScript → Web Worker aislado (sin API, sin scope global) ── */
     if (lang === 'javascript') {
+        showSpinner('Ejecutando JavaScript…');
+        const { lines, timedOut } = await runJavaScriptInWorker(code);
+        hideSpinner();
+
         previewContainer.classList.remove('hidden'); editorSheet.classList.add('hidden');
-        updatePreviewHeader('Salida JavaScript');
+        updatePreviewHeader('JavaScript · Worker aislado');
+
+        const colorMap = { log:'#10b981', error:'#ef4444', warn:'#f59e0b' };
         const doc = document.getElementById('canvas-preview').contentDocument;
         doc.open();
-        doc.write(`<style>body{margin:0;padding:24px;background:#0f172a;color:#10b981;font-family:'Fira Code',monospace;font-size:14px;}</style>
-        <div id="out"></div>
-        <script>
-            const out=document.getElementById('out');
-            const addLine=(txt,color)=>{const d=document.createElement('div');d.style.cssText='border-bottom:1px solid rgba(255,255,255,0.05);padding:4px 0;white-space:pre-wrap;color:'+(color||'#10b981');d.textContent=txt;out.appendChild(d);};
-            console.log=(...a)=>addLine(a.map(x=>typeof x==='object'?JSON.stringify(x,null,2):String(x)).join(' '));
-            console.error=(...a)=>addLine('✗ '+a.join(' '),'#ef4444');
-            console.warn=(...a)=>addLine('⚠ '+a.join(' '),'#f59e0b');
-            try{${code}}catch(e){addLine('✗ '+e.message,'#ef4444');}
-        <\/script>`);
+        doc.write(`<style>
+            *{box-sizing:border-box;margin:0;padding:0}
+            body{background:#0f172a;font-family:'Fira Code',monospace;font-size:14px;padding:28px;min-height:100vh;line-height:1.7}
+            .line{padding:3px 0;white-space:pre-wrap;border-bottom:1px solid rgba(255,255,255,.04)}
+            .empty{color:#475569;font-style:italic}
+            .timeout{color:#f59e0b;font-weight:bold;margin-top:12px}
+        </style>
+        <div id="out">
+        ${lines.length === 0 && !timedOut ? '<p class="empty">Sin salida (el código no llamó a console.log)</p>' : ''}
+        ${lines.map(l => `<div class="line" style="color:${colorMap[l.type]||'#10b981'}">${l.type === 'error' ? '✗ ' : l.type === 'warn' ? '⚠ ' : ''}${escHtml(l.text)}</div>`).join('')}
+        ${timedOut ? '<p class="timeout">⏱ Tiempo de ejecución agotado (10s)</p>' : ''}
+        </div>`);
         doc.close();
         return;
     }
@@ -1297,7 +1388,7 @@ async function launchPreview() {
     /* ── Piston: Python, Java, Bash, TypeScript, Lua, Ruby, C, C++ ── */
     if (!PISTON_LANGS.includes(lang)) { alert(`Ejecución de "${lang}" no soportada.`); return; }
 
-    showSpinner('Compilando con Piston…');
+    showSpinner(`Compilando ${lang.toUpperCase()} con Piston…`);
     try {
         const result = await pistonExecute(lang, code);
         hideSpinner();
@@ -1324,10 +1415,22 @@ async function launchPreview() {
     } catch(err) {
         hideSpinner();
         previewContainer.classList.remove('hidden'); editorSheet.classList.add('hidden');
-        updatePreviewHeader('Error');
+        updatePreviewHeader('Error de ejecución');
+        const is401 = err.message.includes('401');
+        const is429 = err.message.includes('429');
         const doc = document.getElementById('canvas-preview').contentDocument;
         doc.open();
-        doc.write(`<div style="padding:30px;font-family:sans-serif;background:#0f172a;min-height:100vh"><p style="color:#ef4444;font-weight:bold;margin-bottom:12px">No se pudo ejecutar.</p><p style="color:#94a3b8;font-size:13px">Verifica tu conexión.<br>${escHtml(err.message)}</p></div>`);
+        doc.write(`<div style="padding:30px;font-family:system-ui,sans-serif;background:#0f172a;min-height:100vh;color:white">
+            <p style="color:#ef4444;font-weight:700;font-size:15px;margin-bottom:12px">
+                ${is401 ? '🔒 La API de Piston requiere autenticación' : is429 ? '⏱ Límite de peticiones alcanzado' : '⚠ No se pudo ejecutar'}
+            </p>
+            <p style="color:#94a3b8;font-size:13px;line-height:1.7;margin-bottom:10px">
+                ${is401 ? 'La API pública de Piston (emkc.org) está rechazando solicitudes desde este dominio. Prueba ejecutar el archivo localmente o en un servidor propio.' :
+                  is429 ? 'Espera unos segundos e inténtalo de nuevo.' :
+                  'Verifica tu conexión a internet.'}
+            </p>
+            <p style="color:#475569;font-size:12px;font-family:monospace">Error: ${escHtml(err.message)}</p>
+        </div>`);
         doc.close();
     }
 }
