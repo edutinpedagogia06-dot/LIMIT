@@ -1071,21 +1071,22 @@ function openEditor(id) {
         if (!note.lang) note.lang = 'html';
 
         const langOptions = [
-            { val:'html',       label:'HTML',       color:'#e34c26' },
-            { val:'css',        label:'CSS',        color:'#264de4' },
-            { val:'javascript', label:'JavaScript', color:'#f7df1e' },
-            { val:'java',       label:'Java',       color:'#b07219' },
-            { val:'python',     label:'Python',     color:'#3572A5' },
-            { val:'sql',        label:'SQL',        color:'#e38c00' },
-            { val:'json',       label:'JSON',       color:'#40bf77' },
-            { val:'bash',       label:'Bash',       color:'#89e051' },
-            { val:'markdown',   label:'Markdown',   color:'#083fa1' },
+            { val:'html',       label:'HTML',       color:'#e34c26', local:true  },
+            { val:'css',        label:'CSS',        color:'#264de4', local:true  },
+            { val:'javascript', label:'JavaScript', color:'#f7df1e', local:true  },
+            { val:'python',     label:'Python',     color:'#3572A5', local:true  },
+            { val:'java',       label:'Java',       color:'#b07219', local:false },
+            { val:'sql',        label:'SQL',        color:'#e38c00', local:false },
+            { val:'json',       label:'JSON',       color:'#40bf77', local:true  },
+            { val:'bash',       label:'Bash',       color:'#89e051', local:false },
+            { val:'markdown',   label:'Markdown',   color:'#083fa1', local:true  },
         ];
         const currentLang = langOptions.find(l => l.val === note.lang) || langOptions[0];
         const langBtns = langOptions.map(l => `
             <button onclick="setLang('${l.val}')" id="lang-btn-${l.val}"
-                style="padding:5px 12px;border-radius:8px;font-size:10px;font-weight:800;text-transform:uppercase;border:2px solid ${l.val===note.lang?l.color:'transparent'};color:${l.val===note.lang?l.color:'#94a3b8'};background:${l.val===note.lang?l.color+'18':'transparent'};cursor:pointer;transition:all 0.15s;white-space:nowrap">
-                ${l.label}
+                style="padding:5px 12px;border-radius:8px;font-size:10px;font-weight:800;text-transform:uppercase;border:2px solid ${l.val===note.lang?l.color:'transparent'};color:${l.val===note.lang?l.color:'#94a3b8'};background:${l.val===note.lang?l.color+'18':'transparent'};cursor:pointer;transition:all 0.15s;white-space:nowrap"
+                title="${l.local ? '✓ Corre localmente en tu navegador' : 'Requiere conexión a Piston'}">
+                ${l.label}${l.local ? ' <span style="font-size:8px;opacity:.6;font-weight:900">LOCAL</span>' : ''}
             </button>`).join('');
         const runBtn = `<button onclick="launchPreview()" style="background:#00808a;color:white;padding:6px 24px;border-radius:12px;font-size:10px;font-weight:800;text-transform:uppercase;display:flex;align-items:center;gap:6px;border:none;cursor:pointer">▶ EJECUTAR</button>`;
 
@@ -1195,48 +1196,82 @@ function paintColumn() {
 /* ════════════════════════════════════════════════════════════════
    EJECUCIÓN DE CÓDIGO
    ────────────────────────────────────────────────────────────
-   • HTML / CSS   → iframe del navegador
-   • JavaScript   → Web Worker aislado (sin acceso al scope global,
-                    sin necesidad de API externa)
-   • JSON/Markdown→ formateador local
-   • Resto        → Piston API pública (sin auth)
+   • HTML / CSS    → iframe del navegador       (local, instantáneo)
+   • JavaScript    → Web Worker aislado         (local, sin API)
+   • Python        → Pyodide (CPython en WASM)  (local, sin API)
+   • JSON/Markdown → formateador local          (local, sin API)
+   • Resto         → Piston API + botón reintentar si falla
 ════════════════════════════════════════════════════════════════ */
 
-/* Versiones fijas — evitamos la llamada a /runtimes que puede fallar */
-const PISTON_VERSIONS = {
-    python:     '3.10.0',
-    java:       '15.0.2',
-    bash:       '5.2.0',
-    typescript: '5.0.3',
-    lua:        '5.4.4',
-    ruby:       '3.0.1',
-    c:          '10.2.0',
-    cpp:        '10.2.0',
-    rust:       '1.68.2',
-    go:         '1.16.2',
-    php:        '8.2.3',
-    csharp:     '6.12.0',
-    kotlin:     '1.8.20',
-    swift:      '5.3.3',
-    r:          '4.1.1',
-};
+/* ── Pyodide — Python en el navegador ──────────────────────────
+   Se carga desde CDN solo la primera vez que el usuario ejecuta
+   código Python. Las veces siguientes ya está en memoria.       */
+let _pyodide        = null;   /* instancia cacheada               */
+let _pyodideLoading = false;  /* evitar cargas simultáneas        */
+const PYODIDE_CDN   = 'https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js';
 
-const PISTON_FILENAMES = {
-    python:'main.py', java:'Main.java', bash:'main.sh',
-    typescript:'index.ts', lua:'main.lua', ruby:'main.rb',
-    c:'main.c', cpp:'main.cpp', rust:'main.rs', go:'main.go',
-    php:'main.php', csharp:'main.cs', kotlin:'main.kt',
-    swift:'main.swift', r:'main.r',
-};
+async function getPyodide() {
+    if (_pyodide) return _pyodide;
+    if (_pyodideLoading) {
+        /* Esperar a que termine la carga en curso */
+        while (_pyodideLoading) await new Promise(r => setTimeout(r, 100));
+        return _pyodide;
+    }
+    _pyodideLoading = true;
+    /* Cargar el script de Pyodide en el documento si no está ya */
+    if (!window.loadPyodide) {
+        await new Promise((resolve, reject) => {
+            const s   = document.createElement('script');
+            s.src     = PYODIDE_CDN;
+            s.onload  = resolve;
+            s.onerror = () => reject(new Error('No se pudo cargar Pyodide desde el CDN.'));
+            document.head.appendChild(s);
+        });
+    }
+    _pyodide = await window.loadPyodide({
+        indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.25.1/full/',
+    });
+    _pyodideLoading = false;
+    return _pyodide;
+}
 
-const BROWSER_LANGS = ['html', 'css'];
-const DISPLAY_ONLY  = ['json', 'markdown'];
-const PISTON_LANGS  = Object.keys(PISTON_VERSIONS);
+async function runPythonWithPyodide(code) {
+    const py     = await getPyodide();
+    const lines  = [];
+    const push   = (type, text) => lines.push({ type, text: String(text) });
 
-/* ── Ejecutar JavaScript en un Web Worker aislado ─────────────
-   El Worker corre en un contexto completamente separado:
-   sin window, sin document, sin supabase, sin variables globales
-   del documento padre. Captura console.log/error/warn.         */
+    /* Redirigir stdout/stderr de Python a nuestro array */
+    py.runPython(`
+import sys, io
+_limit_stdout = io.StringIO()
+_limit_stderr = io.StringIO()
+sys.stdout = _limit_stdout
+sys.stderr = _limit_stderr
+`);
+
+    let error = null;
+    try {
+        py.runPython(code);
+    } catch(e) {
+        error = e.message || String(e);
+    }
+
+    /* Leer lo que Python imprimió */
+    const stdout = py.runPython('_limit_stdout.getvalue()');
+    const stderr = py.runPython('_limit_stderr.getvalue()');
+
+    /* Restaurar stdout/stderr originales */
+    py.runPython('sys.stdout = sys.__stdout__; sys.stderr = sys.__stderr__');
+
+    if (stdout) stdout.split('\n').filter(Boolean).forEach(l => push('log', l));
+    if (error)  push('error', error);
+    if (stderr) stderr.split('\n').filter(Boolean).forEach(l => push('error', l));
+
+    return lines;
+}
+
+/* ── JavaScript — Web Worker aislado ───────────────────────────
+   Sin window, sin document, sin supabase. Captura console.*    */
 function runJavaScriptInWorker(code) {
     return new Promise(resolve => {
         const lines = [];
@@ -1247,71 +1282,152 @@ self.console = {
     warn:  (...a) => postMessage({ type:'warn',  text: a.join(' ') }),
     info:  (...a) => postMessage({ type:'log',   text: a.join(' ') }),
 };
-try {
-    ${code}
-} catch(e) {
-    postMessage({ type:'error', text: e.message });
-}
+try { ${code} } catch(e) { postMessage({ type:'error', text: e.message }); }
 postMessage({ type:'done' });
 `;
         const blob   = new Blob([workerSrc], { type: 'application/javascript' });
-        const url    = URL.createObjectURL(blob);
-        const worker = new Worker(url);
+        const blobURL = URL.createObjectURL(blob);
+        const worker = new Worker(blobURL);
         const timeout = setTimeout(() => {
-            worker.terminate();
-            URL.revokeObjectURL(url);
+            worker.terminate(); URL.revokeObjectURL(blobURL);
             resolve({ lines, timedOut: true });
-        }, 10000); /* 10s timeout */
+        }, 10000);
 
         worker.onmessage = e => {
             const { type, text } = e.data;
             if (type === 'done') {
-                clearTimeout(timeout);
-                worker.terminate();
-                URL.revokeObjectURL(url);
+                clearTimeout(timeout); worker.terminate(); URL.revokeObjectURL(blobURL);
                 resolve({ lines, timedOut: false });
-            } else {
-                lines.push({ type, text });
-            }
+            } else { lines.push({ type, text }); }
         };
         worker.onerror = err => {
-            clearTimeout(timeout);
-            worker.terminate();
-            URL.revokeObjectURL(url);
+            clearTimeout(timeout); worker.terminate(); URL.revokeObjectURL(blobURL);
             lines.push({ type:'error', text: err.message || 'Error desconocido' });
             resolve({ lines, timedOut: false });
         };
     });
 }
 
-/* ── Piston para lenguajes compilados ─────────────────────── */
+/* ── Piston — lenguajes compilados (con reintentar) ────────────*/
+const PISTON_VERSIONS = {
+    java:'15.0.2', bash:'5.2.0', typescript:'5.0.3', lua:'5.4.4',
+    ruby:'3.0.1',  c:'10.2.0',  cpp:'10.2.0',         rust:'1.68.2',
+    go:'1.16.2',   php:'8.2.3', csharp:'6.12.0',      kotlin:'1.8.20',
+    swift:'5.3.3', r:'4.1.1',
+};
+const PISTON_FILENAMES = {
+    java:'Main.java', bash:'main.sh', typescript:'index.ts', lua:'main.lua',
+    ruby:'main.rb', c:'main.c', cpp:'main.cpp', rust:'main.rs', go:'main.go',
+    php:'main.php', csharp:'main.cs', kotlin:'main.kt', swift:'main.swift', r:'main.r',
+};
+
+const BROWSER_LANGS   = ['html', 'css'];
+const DISPLAY_ONLY    = ['json', 'markdown'];
+const LOCAL_LANGS     = ['javascript', 'python'];
+const PISTON_LANGS    = Object.keys(PISTON_VERSIONS);
+
+/* ── Piston — reintento automático con proxy allorigins ────────
+   Intento 1: emkc.org directo (sin proxy, más rápido)
+   Intento 2: allorigins como proxy CORS si el primero da 401/403
+   JSON.parse explícito en el proxy para detectar respuestas basura.
+   Devuelve el resultado de Piston o lanza error etiquetado.       */
 async function pistonExecute(lang, code) {
-    const ver = PISTON_VERSIONS[lang];
+    const ver   = PISTON_VERSIONS[lang];
     if (!ver) throw new Error(`"${lang}" no soportado.`);
+    const fname = PISTON_FILENAMES[lang] || 'main.txt';
 
-    const pistonUrl = 'https://emkc.org/api/v2/piston/execute';
-    const proxyUrl  = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(pistonUrl);
+    const pistonDirect = 'https://emkc.org/api/v2/piston/execute';
+    const pistonProxy  = 'https://api.allorigins.win/raw?url='
+                         + encodeURIComponent(pistonDirect);
 
-    const ctrl  = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 25000);
+    const body = JSON.stringify({
+        language: lang, version: ver,
+        files: [{ name: fname, content: code }],
+    });
 
-    try {
-        const res = await fetch(proxyUrl, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ language: lang, version: ver,
-                         files: [{ name: PISTON_FILENAMES[lang] || 'main.txt', content: code }] }),
-            signal:  ctrl.signal,
-        });
-        clearTimeout(timer);
-        if (res.status === 429) throw new Error('rate_limit');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return await res.json();
-    } catch(e) {
-        clearTimeout(timer);
-        if (e.name === 'AbortError') throw new Error('timeout');
-        throw e;
+    /* ── helper: un intento con timeout ── */
+    async function attempt(url, timeoutMs) {
+        const ctrl  = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+        try {
+            const res = await fetch(url, {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body,
+                signal:  ctrl.signal,
+            });
+            clearTimeout(timer);
+
+            if (res.status === 429) throw new Error('rate_limit');
+
+            /* Bloqueo explícito de 401/403 → señal de fallo recuperable */
+            if (res.status === 401 || res.status === 403) {
+                throw new Error(`blocked_${res.status}`);
+            }
+            if (!res.ok) throw new Error(`http_${res.status}`);
+
+            /* Leer el texto y hacer JSON.parse limpio.
+               Si el proxy devuelve HTML de error, lo detectamos aquí. */
+            const text = await res.text();
+            let data;
+            try {
+                data = JSON.parse(text);
+            } catch(_) {
+                console.warn('[LIMIT] Respuesta no-JSON del proxy:', text.slice(0, 120));
+                throw new Error('proxy_garbage');
+            }
+            return data;
+
+        } catch(e) {
+            clearTimeout(timer);
+            if (e.name === 'AbortError') throw new Error('timeout');
+            throw e;
+        }
     }
+
+    /* ── Intento 1: directo a emkc.org ── */
+    try {
+        return await attempt(pistonDirect, 18000);
+    } catch(e1) {
+        const recoverable = ['blocked_401','blocked_403','timeout','proxy_garbage']
+                            .some(tag => e1.message.startsWith(tag))
+                            || e1.message.includes('Failed to fetch')
+                            || e1.message.includes('NetworkError');
+
+        if (e1.message === 'rate_limit') throw e1; /* no reintentar en 429 */
+
+        if (!recoverable) throw e1;
+
+        /* ── Intento 2: proxy allorigins (automático, sin intervención del usuario) ── */
+        console.info('[LIMIT] Piston directo falló (' + e1.message + '). Reintentando con proxy…');
+        try {
+            return await attempt(pistonProxy, 22000);
+        } catch(e2) {
+            if (e2.message === 'proxy_garbage') {
+                throw new Error('proxy_garbage'); /* mensaje amable manejado en launchPreview */
+            }
+            /* Ambos intentos fallaron */
+            throw new Error('all_failed:' + e2.message);
+        }
+    }
+}
+
+/* ── Renderizar salida estilo terminal ──────────────────────── */
+function renderTerminalOutput({ lines = [], timedOut = false, lang = '' }) {
+    const colorMap = { log:'#10b981', error:'#ef4444', warn:'#f59e0b' };
+    const isEmpty  = lines.length === 0 && !timedOut;
+    return `<style>
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{background:#0f172a;font-family:'Fira Code',monospace;font-size:14px;padding:28px;min-height:100vh;line-height:1.75}
+        .line{padding:2px 0;white-space:pre-wrap;border-bottom:1px solid rgba(255,255,255,.03)}
+        .empty{color:#475569;font-style:italic}
+        .badge{display:inline-block;font-size:10px;font-weight:700;padding:3px 10px;border-radius:6px;margin-bottom:18px;letter-spacing:.06em;background:rgba(0,128,138,.15);color:#00808a}
+        .timeout{color:#f59e0b;font-weight:bold;margin-top:14px}
+    </style>
+    <div class="badge">${lang.toUpperCase()} · Local ✓</div><br>
+    ${isEmpty ? '<span class="empty">Sin salida (el código no llamó a print / console.log)</span>' : ''}
+    ${lines.map(l => `<div class="line" style="color:${colorMap[l.type]||'#10b981'}">${l.type==='error'?'✗ ':l.type==='warn'?'⚠ ':''}${escHtml(l.text)}</div>`).join('')}
+    ${timedOut ? '<p class="timeout">⏱ Tiempo agotado (10 s)</p>' : ''}`;
 }
 
 async function launchPreview() {
@@ -1323,131 +1439,162 @@ async function launchPreview() {
     const previewContainer = document.getElementById('preview-container');
     const editorSheet      = document.getElementById('editor-sheet');
 
+    const showIframe = (html) => {
+        previewContainer.classList.remove('hidden'); editorSheet.classList.add('hidden');
+        const doc = document.getElementById('canvas-preview').contentDocument;
+        doc.open(); doc.write(html); doc.close();
+    };
+
     /* ── HTML / CSS → iframe del navegador ── */
     if (BROWSER_LANGS.includes(lang)) {
-        previewContainer.classList.remove('hidden'); editorSheet.classList.add('hidden');
         updatePreviewHeader('Vista previa');
-        const doc = document.getElementById('canvas-preview').contentDocument;
-        doc.open();
-        doc.write(lang === 'css'
+        showIframe(lang === 'css'
             ? `<style>${code}</style><p style="padding:20px;font-family:sans-serif;color:#64748b">← CSS aplicado</p>`
             : `<script src="https://cdn.tailwindcss.com"><\/script><style>body{padding:40px;text-align:left}</style>${code}`);
-        doc.close();
         return;
     }
 
     /* ── JSON / Markdown → formatear ── */
     if (DISPLAY_ONLY.includes(lang)) {
-        previewContainer.classList.remove('hidden'); editorSheet.classList.add('hidden');
         updatePreviewHeader(lang === 'markdown' ? 'Vista Markdown' : 'JSON formateado');
-        const doc = document.getElementById('canvas-preview').contentDocument;
-        doc.open();
         if (lang === 'json') {
             let pretty = code; try { pretty = JSON.stringify(JSON.parse(code), null, 2); } catch(_) {}
-            doc.write(`<pre style="padding:30px;font-family:monospace;font-size:14px;background:#0f172a;color:#10b981;min-height:100vh;margin:0;white-space:pre-wrap">${escHtml(pretty)}</pre>`);
+            showIframe(`<pre style="padding:30px;font-family:monospace;font-size:14px;background:#0f172a;color:#10b981;min-height:100vh;margin:0;white-space:pre-wrap">${escHtml(pretty)}</pre>`);
         } else {
             const html = code
                 .replace(/^### (.+)/gm,'<h3>$1</h3>').replace(/^## (.+)/gm,'<h2>$1</h2>').replace(/^# (.+)/gm,'<h1>$1</h1>')
                 .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>')
                 .replace(/`(.+?)`/g,'<code style="background:#f1f5f9;padding:2px 6px;border-radius:4px">$1</code>').replace(/\n/g,'<br>');
-            doc.write(`<div style="padding:40px;font-family:system-ui;line-height:1.7;max-width:800px">${html}</div>`);
+            showIframe(`<div style="padding:40px;font-family:system-ui;line-height:1.7;max-width:800px">${html}</div>`);
         }
-        doc.close();
         return;
     }
 
-    /* ── JavaScript → Web Worker aislado (sin API, sin scope global) ── */
+    /* ── PYTHON → Pyodide (CPython en WASM, 100% local) ── */
+    if (lang === 'python') {
+        showSpinner('Cargando Python (Pyodide)… primera vez puede tardar ~5 s');
+        try {
+            const lines = await runPythonWithPyodide(code);
+            updatePreviewHeader('Python · Pyodide ✓');
+            showIframe(renderTerminalOutput({ lines, lang: 'python' }));
+        } catch(err) {
+            updatePreviewHeader('Python · Error');
+            showIframe(`<div style="padding:30px;font-family:system-ui;background:#0f172a;min-height:100vh">
+                <p style="color:#ef4444;font-weight:700;margin-bottom:10px">Error al ejecutar Python</p>
+                <p style="color:#94a3b8;font-size:13px;white-space:pre-wrap">${escHtml(err.message)}</p>
+            </div>`);
+        } finally { hideSpinner(); }
+        return;
+    }
+
+    /* ── JAVASCRIPT → Web Worker aislado ── */
     if (lang === 'javascript') {
         showSpinner('Ejecutando JavaScript…');
         const { lines, timedOut } = await runJavaScriptInWorker(code);
         hideSpinner();
-
-        previewContainer.classList.remove('hidden'); editorSheet.classList.add('hidden');
-        updatePreviewHeader('JavaScript · Worker aislado');
-
-        const colorMap = { log:'#10b981', error:'#ef4444', warn:'#f59e0b' };
-        const doc = document.getElementById('canvas-preview').contentDocument;
-        doc.open();
-        doc.write(`<style>
-            *{box-sizing:border-box;margin:0;padding:0}
-            body{background:#0f172a;font-family:'Fira Code',monospace;font-size:14px;padding:28px;min-height:100vh;line-height:1.7}
-            .line{padding:3px 0;white-space:pre-wrap;border-bottom:1px solid rgba(255,255,255,.04)}
-            .empty{color:#475569;font-style:italic}
-            .timeout{color:#f59e0b;font-weight:bold;margin-top:12px}
-        </style>
-        <div id="out">
-        ${lines.length === 0 && !timedOut ? '<p class="empty">Sin salida (el código no llamó a console.log)</p>' : ''}
-        ${lines.map(l => `<div class="line" style="color:${colorMap[l.type]||'#10b981'}">${l.type === 'error' ? '✗ ' : l.type === 'warn' ? '⚠ ' : ''}${escHtml(l.text)}</div>`).join('')}
-        ${timedOut ? '<p class="timeout">⏱ Tiempo de ejecución agotado (10s)</p>' : ''}
-        </div>`);
-        doc.close();
+        updatePreviewHeader('JavaScript · Worker ✓');
+        showIframe(renderTerminalOutput({ lines, timedOut, lang: 'javascript' }));
         return;
     }
 
-    /* ── Piston: Python, Java, Bash, TypeScript, Lua, Ruby, C, C++ ── */
-    if (!PISTON_LANGS.includes(lang)) { alert(`Ejecución de "${lang}" no soportada.`); return; }
+    /* ── RESTO → Piston + botón Reintentar ── */
+    if (!PISTON_LANGS.includes(lang)) {
+        alert(`Ejecución de "${lang}" no soportada aún.`); return;
+    }
 
-    showSpinner(`Compilando ${lang.toUpperCase()}… (puede tardar unos segundos)`);
+    showSpinner(`Compilando ${lang.toUpperCase()} con Piston…`);
     try {
-        const result = await pistonExecute(lang, code);
-
+        const result   = await pistonExecute(lang, code);
         const run      = result.run     || {};
         const compile  = result.compile || {};
         const stdout   = run.stdout     || '';
         const stderr   = (run.stderr || '') + (compile.stderr || '') + (compile.output || '');
         const exitCode = run.code ?? 0;
         const success  = exitCode === 0 && !stderr.trim();
-        const statusLbl = success ? `✓ OK` : `✗ Exit ${exitCode}`;
+        const badge    = success ? '✓ OK' : `✗ Exit ${exitCode}`;
 
-        previewContainer.classList.remove('hidden'); editorSheet.classList.add('hidden');
         updatePreviewHeader(`${lang.toUpperCase()} · ${success ? 'OK' : 'Error'}`);
-
-        const doc = document.getElementById('canvas-preview').contentDocument;
-        doc.open();
-        doc.write(`<style>*{box-sizing:border-box;margin:0;padding:0}body{background:#0f172a;font-family:'Fira Code',monospace;font-size:14px;padding:28px;min-height:100vh}.badge{display:inline-block;font-size:10px;font-weight:700;padding:4px 12px;border-radius:6px;margin-bottom:16px;letter-spacing:.08em}.ok{background:rgba(0,128,138,.15);color:#00808a}.err{background:rgba(239,68,68,.15);color:#ef4444}.out{color:#10b981;white-space:pre-wrap;line-height:1.7}.errout{color:#ef4444;white-space:pre-wrap;line-height:1.7;margin-top:16px;border-top:1px solid rgba(239,68,68,.3);padding-top:16px}.empty{color:#475569;font-style:italic}</style>
-        <span class="badge ${success?'ok':'err'}">${escHtml(statusLbl)}</span>
+        showIframe(`<style>
+            *{box-sizing:border-box;margin:0;padding:0}
+            body{background:#0f172a;font-family:'Fira Code',monospace;font-size:14px;padding:28px;min-height:100vh}
+            .badge{display:inline-block;font-size:10px;font-weight:700;padding:4px 12px;border-radius:6px;margin-bottom:16px;letter-spacing:.08em}
+            .ok{background:rgba(0,128,138,.15);color:#00808a} .err{background:rgba(239,68,68,.15);color:#ef4444}
+            .out{color:#10b981;white-space:pre-wrap;line-height:1.7}
+            .errout{color:#ef4444;white-space:pre-wrap;line-height:1.7;margin-top:16px;border-top:1px solid rgba(239,68,68,.3);padding-top:16px}
+            .empty{color:#475569;font-style:italic}
+        </style>
+        <span class="badge ${success?'ok':'err'}">${escHtml(badge)}</span>
         ${stdout ? `<div class="out">${escHtml(stdout)}</div>` : '<div class="empty">Sin salida estándar</div>'}
         ${stderr ? `<div class="errout">${escHtml(stderr)}</div>` : ''}`);
-        doc.close();
 
     } catch(err) {
-        previewContainer.classList.remove('hidden'); editorSheet.classList.add('hidden');
+        const isRate    = err.message === 'rate_limit' || err.message.includes('429');
+        const isGarbage = err.message === 'proxy_garbage';
+        const isJava    = lang === 'java';
+        updatePreviewHeader(isRate ? '⏱ Rate limit' : '⚙ Servidor ocupado');
 
-        const isBlocked = ['motor_bloqueado','timeout'].includes(err.message) ||
-                          err.message.includes('401') || err.message.includes('403');
-        const isRateLimit = err.message === 'rate_limit' || err.message.includes('429');
+        /* ── Snippets de IDE por lenguaje para cuando todo falla ── */
+        const ideLinks = {
+            java:       { name: 'IntelliJ / Eclipse',  url: 'https://onecompiler.com/java'       },
+            cpp:        { name: 'CLion / VS Code',      url: 'https://onecompiler.com/cpp'        },
+            c:          { name: 'GCC / VS Code',        url: 'https://onecompiler.com/c'          },
+            bash:       { name: 'Terminal local',       url: 'https://onecompiler.com/bash'       },
+            typescript: { name: 'VS Code + ts-node',   url: 'https://onecompiler.com/typescript' },
+            lua:        { name: 'Lua local',            url: 'https://onecompiler.com/lua'        },
+            ruby:       { name: 'irb local',            url: 'https://onecompiler.com/ruby'       },
+            rust:       { name: 'cargo run',            url: 'https://onecompiler.com/rust'       },
+            go:         { name: 'go run',               url: 'https://onecompiler.com/go'         },
+            php:        { name: 'php -f',               url: 'https://onecompiler.com/php'        },
+            csharp:     { name: 'dotnet run',           url: 'https://onecompiler.com/csharp'     },
+            kotlin:     { name: 'kotlinc',              url: 'https://onecompiler.com/kotlin'     },
+        };
+        const ide = ideLinks[lang] || { name: 'IDE local', url: 'https://onecompiler.com/' };
 
-        updatePreviewHeader(isBlocked ? '⚙ Motor en mantenimiento' : isRateLimit ? '⏱ Demasiadas peticiones' : '✗ Error de ejecución');
+        /* Snippet inline para Java (el más popular de los compilados) */
+        const javaSnippet = isJava ? `
+        <div style="margin-top:20px;background:#0f172a;border-radius:12px;padding:16px 20px;text-align:left">
+            <p style="color:#475569;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Tu código listo para copiar:</p>
+            <pre style="color:#10b981;font-family:'Fira Code',monospace;font-size:12px;white-space:pre-wrap;overflow-x:auto;margin:0">${escHtml(code)}</pre>
+        </div>` : '';
 
-        const doc = document.getElementById('canvas-preview').contentDocument;
-        doc.open();
-        doc.write(`<style>
+        showIframe(`<style>
             *{box-sizing:border-box;margin:0;padding:0}
-            body{background:#0f172a;font-family:system-ui,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center}
-            .card{background:#1e293b;border-radius:16px;padding:36px 40px;max-width:480px;text-align:center}
-            .icon{font-size:40px;margin-bottom:16px}
-            .title{color:#f1f5f9;font-size:17px;font-weight:700;margin-bottom:10px}
+            body{background:#0f172a;font-family:system-ui,sans-serif;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:40px 20px}
+            .card{background:#1e293b;border-radius:16px;padding:32px 36px;max-width:520px;width:100%;text-align:center}
+            .ico{font-size:34px;margin-bottom:12px}
+            .ttl{color:#f1f5f9;font-size:16px;font-weight:700;margin-bottom:10px}
             .msg{color:#94a3b8;font-size:13px;line-height:1.75;margin-bottom:20px}
-            .tip{background:#0f172a;border-radius:10px;padding:14px 18px;color:#10b981;font-size:12px;font-family:'Fira Code',monospace;text-align:left;line-height:1.6}
-            .tip span{color:#475569}
+            .btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+            .btn-retry{background:#00808a;color:white;border:none;border-radius:10px;padding:10px 22px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;cursor:pointer;transition:background .2s}
+            .btn-retry:hover{background:#006d75}
+            .btn-ide{background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:10px;padding:10px 18px;font-size:12px;font-weight:600;cursor:pointer;text-decoration:none;transition:all .2s;display:inline-block}
+            .btn-ide:hover{border-color:#00808a;color:#00808a}
+            .err-detail{color:#334155;font-size:11px;font-family:monospace;margin-top:12px}
         </style>
         <div class="card">
-            <div class="icon">${isBlocked ? '⚙️' : isRateLimit ? '⏱️' : '⚠️'}</div>
-            <p class="title">${isBlocked ? 'El motor externo está en mantenimiento' : isRateLimit ? 'Demasiadas peticiones seguidas' : 'No se pudo ejecutar'}</p>
-            <p class="msg">${
-                isBlocked   ? 'El servidor de ejecución (<code style="color:#94a3b8">/api/execute</code>) no pudo conectar con Piston. Asegúrate de que el archivo <strong style="color:#f1f5f9">api/execute.js</strong> está subido a tu repositorio de Vercel. Mientras tanto, usa <strong style="color:#f1f5f9">JavaScript</strong> — corre directamente en tu navegador sin ninguna API.' :
-                isRateLimit ? 'Espera unos segundos antes de volver a ejecutar.' :
-                              'Verifica tu conexión a internet o el despliegue en Vercel.'
+            <div class="ico">${isRate ? '⏱️' : isGarbage ? '🔌' : '⚙️'}</div>
+            <p class="ttl">${
+                isRate    ? 'Demasiadas peticiones seguidas'
+              : isGarbage ? 'El proxy devolvió una respuesta inválida'
+              : 'Servidor externo ocupado'
             }</p>
-            <div class="tip">
-                <span>// Tip: JavaScript siempre funciona →</span><br>
-                console.log("Hola desde LIMIT ✓");
+            <p class="msg">${
+                isRate
+                ? 'Espera unos segundos e inténtalo de nuevo.'
+                : isGarbage
+                ? 'El proxy intermediario devolvió datos corruptos. Inténtalo de nuevo en unos segundos.'
+                : `Piston no respondió tras dos intentos automáticos.<br>
+                   Puedes copiar tu código y probarlo en <strong style="color:#f1f5f9">${ide.name}</strong> mientras tanto.`
+            }</p>
+            <div class="btns">
+                <button class="btn-retry" onclick="parent.launchPreview()">↺ Reintentar automático</button>
+                <a class="btn-ide" href="${ide.url}" target="_blank">Abrir en ${ide.name} →</a>
             </div>
+            ${javaSnippet}
+            <p class="err-detail">${escHtml(err.message)}</p>
         </div>`);
-        doc.close();
 
     } finally {
-        /* El botón NUNCA se queda trabado — hideSpinner corre siempre */
         hideSpinner();
     }
 }
