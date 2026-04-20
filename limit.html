@@ -19,7 +19,92 @@
 
     <style>
         :root { --limit-teal: #00808a; --limit-blue: #0a2540; --limit-gray: #f4f7f9; }
-        body { background-color: var(--limit-gray); font-family: 'Inter', system-ui, sans-serif; color: #0a2540; transition: all 0.3s ease; }
+
+        /* ── SCROLL LIMPIO ────────────────────────────────────────────
+           overflow:hidden en html/body destruye position:fixed en Chrome.
+           Usamos scrollbar-gutter:stable para reservar el espacio de la
+           barra sin mostrar una segunda barra vacía.
+           overflow-x:hidden elimina el scroll lateral accidental.      */
+        html {
+            overflow-x: hidden;
+            scrollbar-gutter: stable;
+        }
+        body {
+            overflow-x: hidden;
+            min-height: 100vh;
+            margin: 0;
+            background-color: var(--limit-gray);
+            font-family: 'Inter', system-ui, sans-serif;
+            color: #0a2540;
+            transition: background 0.3s ease;
+        }
+
+        /* ── #app-root: div semántico sin propiedades de layout ───── */
+        #app-root { /* sin overflow, sin height — no bloquea position:fixed */ }
+
+        /* ── Botones de formato (Negrita, Alineación) ── */
+        .fmt-btn {
+            width: 30px; height: 30px; border-radius: 50%;
+            background: white; border: 1.5px solid #e2e8f0;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.18s; flex-shrink: 0;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+            font-size: 13px; font-weight: 900; color: #0a2540;
+            font-family: system-ui, sans-serif; padding: 0;
+        }
+        .fmt-btn:hover   { border-color: #00808a; box-shadow: 0 2px 8px rgba(0,128,138,0.2); transform: scale(1.1); }
+        .fmt-btn.active  { background: #00808a; border-color: #00808a; color: white; }
+        .fmt-btn svg     { width: 13px; height: 13px; pointer-events: none; }
+        .fmt-group       { display: flex; align-items: center; gap: 4px; padding-left: 10px; border-left: 1px solid #e2e8f0; flex-shrink: 0; }
+
+        /* Menú tipo-nota: cuadrícula 2×2 responsiva */
+        #type-menu-grid  { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .type-card       { display: flex; flex-direction: column; align-items: center; gap: 10px; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 24px; padding: 20px 16px; cursor: pointer; transition: all 0.2s cubic-bezier(0.34,1.56,0.64,1); min-width: 120px; }
+        .type-card:hover { border-color: #00808a; background: #f0fdfc; transform: translateY(-3px); box-shadow: 0 10px 28px rgba(0,128,138,0.15); }
+        .type-card-icon  { width: 64px; height: 64px; border-radius: 18px; display: flex; align-items: center; justify-content: center; font-size: 2rem; flex-shrink: 0; }
+        .type-card span  { font-size: 10px; font-weight: 800; color: #00808a; text-transform: uppercase; letter-spacing: .1em; }
+        .type-card.disabled { opacity: 0.5; cursor: default; }
+        .type-card.disabled:hover { transform: none; box-shadow: none; border-color: #e2e8f0; background: #f8fafc; }
+        .type-card.disabled span { color: #94a3b8; }
+
+        /* Panel interior del menú */
+        #type-menu-panel {
+            background: white; backdrop-filter: blur(10px);
+            border-radius: 28px; padding: 28px 24px;
+            box-shadow: 0 32px 80px rgba(10,37,64,0.2);
+            width: 90vw; max-width: 500px;
+        }
+
+        /* ── Selector de color de letra ── */
+        .txt-color-wrap {
+            display: flex; align-items: center;
+            border-left: 1px solid #e2e8f0; padding-left: 10px; flex-shrink: 0;
+        }
+        .txt-color-btn {
+            position: relative; width: 30px; height: 30px; border-radius: 50%;
+            background: white; border: 1.5px solid #e2e8f0;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.18s; flex-shrink: 0;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+        .txt-color-btn:hover { border-color: #00808a; box-shadow: 0 2px 8px rgba(0,128,138,0.2); transform: scale(1.1); }
+        .txt-color-btn svg { width: 14px; height: 14px; pointer-events: none; }
+        .txt-color-btn input[type="color"] {
+            position: absolute; inset: 0; opacity: 0;
+            width: 100%; height: 100%; cursor: pointer; border: none; padding: 0;
+        }
+        /* Franja de color bajo la A que refleja el color activo */
+        .txt-color-bar {
+            position: absolute; bottom: 4px; left: 6px; right: 6px;
+            height: 3px; border-radius: 2px; background: #0a2540;
+            pointer-events: none; transition: background 0.15s;
+        }
+        * { scrollbar-width: thin; scrollbar-color: rgba(0,128,138,0.22) transparent; }
+        *::-webkit-scrollbar          { width: 5px; height: 5px; }
+        *::-webkit-scrollbar-track    { background: transparent; }
+        *::-webkit-scrollbar-thumb    { background: rgba(0,128,138,0.22); border-radius: 99px; }
+        *::-webkit-scrollbar-thumb:hover { background: rgba(0,128,138,0.5); }
+        *::-webkit-scrollbar-corner   { background: transparent; }
 
         /* Carpetas */
         .folder-pill { transition: all 0.3s; cursor: pointer; display: flex; align-items: center; gap: 8px; border: 2px solid transparent; }
@@ -67,9 +152,20 @@
         .dark-text-needed #modal-title, .dark-text-needed #modal-body, .dark-text-needed [contenteditable] { color: white !important; }
         [contenteditable]:focus { outline: none; }
 
-        /* Image resize */
-        .note-img { max-width: 100%; border-radius: 1.5rem; display: block; margin: 1rem 0; box-shadow: 0 10px 20px rgba(0,0,0,0.1); vertical-align: middle; }
-        .img-resize-wrapper { display: inline-block; position: relative; line-height: 0; margin: 1rem 0; vertical-align: middle; }
+        /* ── Imagen: contenedor + ajuste de texto ─────────────────────
+           REGLAS CRÍTICAS:
+           1. float solo funciona en elementos block-level (display:block).
+           2. max-width:100% en el wrapper hace que ocupe toda la línea,
+              matando el efecto del float → usar width:fit-content.
+           3. El wrapper debe ser <div> (no <span>) para que float funcione
+              de forma fiable en Chrome con contenteditable.                 */
+        .note-img { max-width: 100%; border-radius: 1.5rem; display: block; margin: 0; box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+        .img-resize-wrapper {
+            display: block; position: relative;
+            width: fit-content; width: -moz-fit-content;  /* ancho = tamaño de la imagen */
+            max-width: 100%;                               /* pero nunca desbordar el padre */
+            margin: 15px 0;
+        }
         .img-resize-wrapper img { display: block; border-radius: 1.5rem; box-shadow: 0 10px 20px rgba(0,0,0,0.1); max-width: 100%; }
         .img-resize-wrapper.selected img { outline: 3px solid var(--limit-teal); outline-offset: 2px; }
         .img-resize-wrapper .resize-handle { display: none; position: absolute; width: 14px; height: 14px; background: var(--limit-teal); border: 2px solid white; border-radius: 4px; z-index: 100; box-shadow: 0 2px 6px rgba(0,128,138,0.5); }
@@ -80,6 +176,30 @@
         .resize-handle.se { bottom: -6px; right: -6px; cursor: se-resize; }
         .img-resize-wrapper .size-label { display: none; position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); background: rgba(10,37,64,0.75); color: white; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 8px; pointer-events: none; white-space: nowrap; }
         .img-resize-wrapper.resizing .size-label { display: block; }
+
+        /* ── Clases de float (margin 15px como especifica el usuario) ── */
+        .img-resize-wrapper.wrap-left  { float: left  !important; display: block !important; width: fit-content !important; margin: 15px 15px 15px 0 !important; shape-outside: margin-box; }
+        .img-resize-wrapper.wrap-right { float: right !important; display: block !important; width: fit-content !important; margin: 15px 0 15px 15px !important; shape-outside: margin-box; }
+        .img-resize-wrapper.wrap-none  { float: none  !important; display: block !important; clear: both; margin: 15px auto !important; }
+        /* Clearfix: cierra el contexto de float */
+        .img-clearfix { clear: both !important; display: block !important; height: 0 !important; line-height: 0 !important; font-size: 0 !important; overflow: hidden !important; }
+
+        /* Barra de controles flotante sobre la imagen seleccionada */
+        .img-ctrl-bar {
+            display: none; position: absolute; top: -44px; left: 50%;
+            transform: translateX(-50%);
+            background: rgba(10,37,64,0.92); border-radius: 10px;
+            padding: 6px 10px; gap: 4px; align-items: center;
+            z-index: 200; white-space: nowrap; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .img-resize-wrapper.selected .img-ctrl-bar { display: flex; }
+        .img-ctrl-btn {
+            background: rgba(255,255,255,0.12); border: none; border-radius: 6px;
+            color: white; font-size: 10px; font-weight: 700; padding: 4px 9px;
+            cursor: pointer; transition: background 0.15s; display: flex; align-items: center; gap: 4px;
+        }
+        .img-ctrl-btn:hover { background: rgba(255,255,255,0.25); }
+        .img-ctrl-btn.active-wrap { background: #00808a; }
 
         /* Download spinner */
         #download-spinner { display: none; position: fixed; inset: 0; background: rgba(10,37,64,0.45); backdrop-filter: blur(4px); z-index: 9999; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
@@ -213,13 +333,41 @@
         }
         .w-skip-btn:hover { color: #0a2540; }
 
-        /* ─── JIJI ESTADO VACÍO ─── */
+        /* ── Editor modal ───────────────────────────────────────────
+           position:fixed con z-index alto. JS añade/quita la clase
+           'open-modal' para mostrarlo — nunca se activa solo.
+           El toolbar queda sticky arriba; el área de contenido scrollea.  */
+        #editor-modal {
+            position: fixed !important;
+            inset: 0 !important;
+            z-index: 150;
+            display: none;          /* oculto por defecto — JS lo abre */
+            flex-direction: column;
+        }
+        #editor-modal.open-modal {
+            display: flex !important;
+        }
+        #editor-modal > div:first-child {  /* toolbar */
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            flex-shrink: 0;
+        }
+        #editor-content-area {
+            flex: 1 1 0;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        /* ── Jiji estado vacío ── */
         .jiji-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 24px; gap: 36px; grid-column: 1/-1; }
         .jiji-wrap { animation: jiji-float 3.8s ease-in-out infinite; filter: drop-shadow(0 14px 36px rgba(0,128,138,0.1)); }
         @keyframes jiji-float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-16px)} }
     </style>
 </head>
 <body class="min-h-screen pb-32">
+<div id="app-root">
 
 <!-- Config warning (se oculta solo si Supabase está bien configurado) -->
 <div id="config-warn">
@@ -340,7 +488,7 @@
     <div id="notes-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8"></div>
 </main>
 
-<div id="editor-modal" class="fixed inset-0 bg-white z-[150] hidden flex-col">
+<div id="editor-modal" class="bg-white flex-col" style="z-index:150">
     <div class="p-4 border-b flex items-center justify-between bg-gray-50/95 backdrop-blur-md shadow-sm gap-3 flex-nowrap overflow-x-auto">
         <!-- IZQUIERDA -->
         <div class="flex items-center gap-3 flex-shrink-0">
@@ -359,6 +507,49 @@
                 <div onclick="applyColor('bg-emerald-900')" class="color-dot bg-emerald-900"></div>
                 <div onclick="applyColor('bg-amber-900')"   class="color-dot bg-amber-900"></div>
             </div>
+
+            <!-- Selector color de letra -->
+            <div class="txt-color-wrap" id="txt-color-wrap">
+                <div class="txt-color-btn" title="Color de letra">
+                    <svg viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <text x="1" y="11" font-family="system-ui,sans-serif" font-size="11" font-weight="800" fill="#0a2540">A</text>
+                    </svg>
+                    <span class="txt-color-bar" id="txt-color-bar"></span>
+                    <input type="color" id="txt-color-input" value="#0a2540"
+                           oninput="applyTextColor(this.value)"
+                           onchange="applyTextColor(this.value)"
+                           title="Selecciona color de letra">
+                </div>
+            </div>
+
+            <!-- Negrita + Alineación -->
+            <div class="fmt-group" id="fmt-tools">
+                <!-- Negrita -->
+                <button class="fmt-btn" id="btn-bold" title="Negrita (Ctrl+B)"
+                        onmousedown="event.preventDefault()"
+                        onclick="execFmt('bold')">
+                    <b>B</b>
+                </button>
+                <!-- Alineación izquierda -->
+                <button class="fmt-btn" id="btn-alignL" title="Alinear izquierda"
+                        onmousedown="event.preventDefault()"
+                        onclick="execFmt('justifyLeft')">
+                    <svg viewBox="0 0 13 13" fill="none"><line x1="1" y1="3" x2="12" y2="3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="1" y1="6.5" x2="8" y2="6.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="1" y1="10" x2="12" y2="10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                </button>
+                <!-- Centrar -->
+                <button class="fmt-btn" id="btn-alignC" title="Centrar"
+                        onmousedown="event.preventDefault()"
+                        onclick="execFmt('justifyCenter')">
+                    <svg viewBox="0 0 13 13" fill="none"><line x1="1" y1="3" x2="12" y2="3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="3.5" y1="6.5" x2="9.5" y2="6.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="1" y1="10" x2="12" y2="10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                </button>
+                <!-- Alineación derecha -->
+                <button class="fmt-btn" id="btn-alignR" title="Alinear derecha"
+                        onmousedown="event.preventDefault()"
+                        onclick="execFmt('justifyRight')">
+                    <svg viewBox="0 0 13 13" fill="none"><line x1="1" y1="3" x2="12" y2="3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="5" y1="6.5" x2="12" y2="6.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="1" y1="10" x2="12" y2="10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                </button>
+            </div>
+
             <div id="excel-tools" class="hidden items-center gap-2 border-l pl-3">
                 <button onclick="addRow()"       class="text-[9px] font-black bg-white border px-4 py-2.5 rounded-xl uppercase whitespace-nowrap">+ Fila</button>
                 <button onclick="addCol()"       class="text-[9px] font-black bg-white border px-4 py-2.5 rounded-xl uppercase whitespace-nowrap">+ Col</button>
@@ -389,24 +580,35 @@
     </div>
 </div>
 
-<div id="type-menu" class="fixed inset-0 bg-slate-900/60 backdrop-blur hidden items-center justify-center z-[200]" onclick="this.classList.replace('flex', 'hidden')">
-    <div class="bg-white p-12 rounded-[3.5rem] flex gap-8 shadow-2xl scale-110" onclick="event.stopPropagation()">
-        <button onclick="addNote('text')" class="flex flex-col items-center group">
-            <div class="w-24 h-24 bg-teal-50 rounded-[2.5rem] flex items-center justify-center text-5xl group-hover:scale-110 transition shadow-inner">📝</div>
-            <span class="mt-4 text-[11px] font-black text-[#00808a] uppercase tracking-widest">Texto</span>
-        </button>
-        <button onclick="addNote('table')" class="flex flex-col items-center group">
-            <div class="w-24 h-24 bg-blue-50 rounded-[2.5rem] flex items-center justify-center text-5xl group-hover:scale-110 transition shadow-inner">📊</div>
-            <span class="mt-4 text-[11px] font-black text-[#00808a] uppercase tracking-widest">Tabla</span>
-        </button>
-        <button onclick="addNote('html-canvas')" class="flex flex-col items-center group">
-            <div class="w-24 h-24 bg-emerald-50 rounded-[2.5rem] flex items-center justify-center text-5xl group-hover:scale-110 transition shadow-inner">🌐</div>
-            <span class="mt-4 text-[11px] font-black text-[#00808a] uppercase tracking-widest">Canvas</span>
-        </button>
+<div id="type-menu" class="fixed inset-0 backdrop-blur-sm hidden items-center justify-center z-[200]"
+     style="background:rgba(10,37,64,0.55)"
+     onclick="this.classList.replace('flex','hidden')">
+    <div id="type-menu-panel" onclick="event.stopPropagation()">
+        <p style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;color:#94a3b8;text-align:center;margin-bottom:20px;margin-top:0">Nueva nota</p>
+        <div id="type-menu-grid">
+            <button class="type-card" onclick="addNote('text')">
+                <div class="type-card-icon" style="background:#f0fdfc">📝</div>
+                <span>Texto</span>
+            </button>
+            <button class="type-card" onclick="addNote('table')">
+                <div class="type-card-icon" style="background:#eff6ff">📊</div>
+                <span>Tabla</span>
+            </button>
+            <button class="type-card" onclick="addNote('html-canvas')">
+                <div class="type-card-icon" style="background:#f0fdf4">🌐</div>
+                <span>Código</span>
+            </button>
+            <button class="type-card disabled" onclick="alert('Dibujo estará disponible próximamente 🎨')">
+                <div class="type-card-icon" style="background:#faf5ff">🎨</div>
+                <span>Próximamente</span>
+            </button>
+        </div>
     </div>
 </div>
 
-<button onclick="document.getElementById('type-menu').classList.replace('hidden', 'flex')" class="fixed bottom-10 right-10 bg-[#00808a] text-white w-20 h-20 rounded-[2.2rem] flex items-center justify-center shadow-2xl hover:scale-110 transition-all z-40 border-4 border-white">
+<!-- Botón + Desktop (oculto en móvil) -->
+<button onclick="document.getElementById('type-menu').classList.replace('hidden','flex')"
+    class="hidden md:flex fixed bottom-10 right-10 bg-[#00808a] text-white w-20 h-20 rounded-[2.2rem] items-center justify-center shadow-2xl hover:scale-110 transition-all z-40 border-4 border-white">
     <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="4" d="M12 4v16m8-8H4" /></svg>
 </button>
 
@@ -503,6 +705,39 @@
         <div onclick="applyColor('bg-emerald-900')" class="color-dot bg-emerald-900" style="flex-shrink:0"></div>
         <div onclick="applyColor('bg-amber-900')"   class="color-dot bg-amber-900"   style="flex-shrink:0"></div>
         <div style="width:1px;height:18px;background:#e2e8f0;flex-shrink:0"></div>
+        <!-- Color de letra (móvil) -->
+        <div id="mob-txt-color-wrap" style="position:relative;width:28px;height:28px;border-radius:50%;background:white;border:1.5px solid #e2e8f0;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 1px 4px rgba(0,0,0,0.08);" title="Color de letra">
+            <svg viewBox="0 0 14 14" style="width:14px;height:14px;pointer-events:none" fill="none"><text x="1" y="11" font-family="system-ui,sans-serif" font-size="11" font-weight="800" fill="#0a2540">A</text></svg>
+            <span id="mob-txt-color-bar" style="position:absolute;bottom:4px;left:5px;right:5px;height:3px;border-radius:2px;background:#0a2540;pointer-events:none"></span>
+            <input type="color" id="mob-txt-color-input" value="#0a2540"
+                   oninput="applyTextColor(this.value)"
+                   onchange="applyTextColor(this.value)"
+                   style="position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;border:none;padding:0">
+        </div>
+        <!-- Negrita + Alineación (móvil) -->
+        <div style="width:1px;height:18px;background:#e2e8f0;flex-shrink:0"></div>
+        <!-- Negrita -->
+        <button class="fmt-btn" id="mob-btn-bold" title="Negrita"
+                onmousedown="event.preventDefault()" onclick="execFmt('bold')">
+            <b style="font-size:13px">B</b>
+        </button>
+        <!-- Alinear izq / centro / der — solo notas normales -->
+        <div id="mob-align-btns" style="display:flex;align-items:center;gap:6px">
+        <button class="fmt-btn" id="mob-btn-alignL" title="Izquierda"
+                onmousedown="event.preventDefault()" onclick="execFmt('justifyLeft')">
+            <svg style="width:13px;height:13px" viewBox="0 0 13 13" fill="none"><line x1="1" y1="3" x2="12" y2="3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="1" y1="6.5" x2="8" y2="6.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="1" y1="10" x2="12" y2="10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <!-- Centrar -->
+        <button class="fmt-btn" id="mob-btn-alignC" title="Centro"
+                onmousedown="event.preventDefault()" onclick="execFmt('justifyCenter')">
+            <svg style="width:13px;height:13px" viewBox="0 0 13 13" fill="none"><line x1="1" y1="3" x2="12" y2="3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="3.5" y1="6.5" x2="9.5" y2="6.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="1" y1="10" x2="12" y2="10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <!-- Alinear der -->
+        <button class="fmt-btn" id="mob-btn-alignR" title="Derecha"
+                onmousedown="event.preventDefault()" onclick="execFmt('justifyRight')">
+            <svg style="width:13px;height:13px" viewBox="0 0 13 13" fill="none"><line x1="1" y1="3" x2="12" y2="3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="5" y1="6.5" x2="12" y2="6.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="1" y1="10" x2="12" y2="10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        </div>
         <div id="mob-excel-btns" style="display:none;align-items:center;gap:6px">
             <button onclick="addRow()"      class="mob-strip-btn" style="background:#f8fafc;border:1px solid #e2e8f0;color:#475569">+Fila</button>
             <button onclick="addCol()"      class="mob-strip-btn" style="background:#f8fafc;border:1px solid #e2e8f0;color:#475569">+Col</button>
@@ -865,9 +1100,43 @@ function initImageResize(editable) {
 }
 
 function wrapImage(img) {
-    const wrapper = document.createElement('span');
+    /* El wrapper es DIV (no span) — es la única forma fiable de hacer que
+       float funcione en Chrome dentro de un contenteditable. Un <span> con
+       display:block + float tiene bugs conocidos que dejan al span en la
+       línea base del texto en vez de flotar.                               */
+    const wrapper = document.createElement('div');
     wrapper.className = 'img-resize-wrapper';
     wrapper.contentEditable = 'false';
+    /* ID único para drag-and-drop */
+    const wrapId = 'lc-img-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+    wrapper.dataset.wrapId = wrapId;
+
+    /* ── Ancho automático: el wrapper se ajusta al tamaño de la imagen,
+         no ocupa el 100% del ancho del padre. max-content hace que tome
+         solo el espacio necesario, con un tope de max-width:100%.       */
+    wrapper.style.width    = 'max-content';
+    wrapper.style.maxWidth = '100%';
+
+    /* ── Barra de controles de ajuste de texto ── */
+    const ctrlBar = document.createElement('div');
+    ctrlBar.className = 'img-ctrl-bar';
+    ctrlBar.innerHTML = `
+        <button class="img-ctrl-btn" title="Texto alrededor izquierda"
+                onclick="setImgWrap(this,'wrap-left')">
+            <svg width="12" height="12" fill="none" viewBox="0 0 12 12"><rect x="0" y="0" width="4" height="9" rx="1" fill="currentColor"/><line x1="6" y1="2" x2="11" y2="2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="6" y1="5" x2="11" y2="5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="0" y1="11" x2="11" y2="11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            Izq
+        </button>
+        <button class="img-ctrl-btn" title="Sin ajuste (bloque)"
+                onclick="setImgWrap(this,'wrap-none')">
+            <svg width="12" height="12" fill="none" viewBox="0 0 12 12"><line x1="0" y1="2" x2="12" y2="2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><rect x="2" y="4" width="8" height="4" rx="1" fill="currentColor" opacity=".5"/><line x1="0" y1="10" x2="12" y2="10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            Bloque
+        </button>
+        <button class="img-ctrl-btn" title="Texto alrededor derecha"
+                onclick="setImgWrap(this,'wrap-right')">
+            <svg width="12" height="12" fill="none" viewBox="0 0 12 12"><rect x="8" y="0" width="4" height="9" rx="1" fill="currentColor"/><line x1="0" y1="2" x2="6" y2="2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="0" y1="5" x2="6" y2="5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="0" y1="11" x2="12" y2="11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            Der
+        </button>`;
+    wrapper.appendChild(ctrlBar);
 
     const label = document.createElement('span');
     label.className = 'size-label';
@@ -877,7 +1146,8 @@ function wrapImage(img) {
     wrapper.appendChild(img);
 
     if (!img.style.width) img.style.width = Math.min(img.naturalWidth || 300, 300) + 'px';
-    img.style.height = 'auto';
+    img.style.height  = 'auto';
+    img.style.display = 'block';
 
     ['nw', 'ne', 'sw', 'se'].forEach(dir => {
         const handle = document.createElement('span');
@@ -890,23 +1160,186 @@ function wrapImage(img) {
         });
     });
 
-    img.addEventListener('click', (e) => {
+    /* ── Drag-and-drop: mover (no clonar) ── */
+    wrapper.setAttribute('draggable', 'true');
+
+    wrapper.addEventListener('dragstart', (e) => {
         e.stopPropagation();
-        document.querySelectorAll('.img-resize-wrapper.selected').forEach(w => { if (w !== wrapper) w.classList.remove('selected'); });
-        wrapper.classList.toggle('selected');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', wrapId);
+        setTimeout(() => wrapper.style.opacity = '0.4', 0);
     });
 
-    document.addEventListener('keydown', (e) => {
-        if ((e.key === 'Delete' || e.key === 'Backspace') && wrapper.classList.contains('selected')) {
-            const focused = document.activeElement;
-            if (!focused || focused.tagName === 'BODY' || focused === document.getElementById('editor-content-area')) {
-                e.preventDefault();
-                saveContentBeforeRemove();
-                wrapper.remove();
-                persistContent();
-            }
-        }
+    wrapper.addEventListener('dragend', () => {
+        wrapper.style.opacity = '1';
     });
+
+    /* Bloquear el drag nativo de <img> (que clona) */
+    img.addEventListener('dragstart', (e) => { e.preventDefault(); e.stopPropagation(); });
+
+    img.addEventListener('click', (e) => {
+        e.stopPropagation();
+        document.querySelectorAll('.img-resize-wrapper.selected')
+                .forEach(w => { if (w !== wrapper) w.classList.remove('selected'); });
+        wrapper.classList.toggle('selected');
+    });
+}
+
+/* ── Listener GLOBAL de teclado para eliminar imagen seleccionada ──
+   Se registra UNA sola vez en el arranque (no por-imagen).
+   Si hay alguna imagen seleccionada y se pulsa Delete/Backspace:
+   - La quita del DOM con wrapper.remove()
+   - Persiste el contenido actualizado
+   Funciona aunque el foco esté en el editable (caso común).        */
+if (!window._imgDelKeyRegistered) {
+    window._imgDelKeyRegistered = true;
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+
+        const selectedWrapper = document.querySelector('.img-resize-wrapper.selected');
+        if (!selectedWrapper) return;
+
+        /* Si el foco está en un input/textarea real, no interceptar */
+        const ae = document.activeElement;
+        if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        /* Eliminar también el clearfix inmediatamente después si existe */
+        const next = selectedWrapper.nextSibling;
+        if (next?.classList?.contains('img-clearfix')) next.remove();
+
+        selectedWrapper.remove();
+        persistContent();
+    });
+}
+
+/* ══════════════════════════════════════════════════════════════
+   DRAG & DROP DE IMÁGENES
+   ──────────────────────────────────────────────────────────────
+   Se registra UNA vez por nota abierta (flag _imgDropRegistered).
+   Usa caretRangeFromPoint para inserción precisa entre palabras.
+   Muestra un cursor teal de 2 px que sigue al puntero.
+   Bloquea drops sobre <td>/<th> para no romper tablas.
+══════════════════════════════════════════════════════════════ */
+function _registerImgDropTarget(editable) {
+    if (editable._imgDropRegistered) return;
+    editable._imgDropRegistered = true;
+
+    /* ── Cursor visual de posición ── */
+    let _cur = null;
+    const _showCur = (x, y) => {
+        if (!_cur) {
+            _cur = document.createElement('div');
+            _cur.style.cssText = [
+                'position:fixed','width:2px','height:26px',
+                'background:#00808a','border-radius:2px',
+                'pointer-events:none','z-index:9000',
+                'box-shadow:0 0 8px rgba(0,128,138,0.7)',
+                'transform:translateX(-1px)','transition:top .05s,left .05s'
+            ].join(';');
+            document.body.appendChild(_cur);
+        }
+        Object.assign(_cur.style, { left: x+'px', top: (y-13)+'px', display:'block' });
+    };
+    const _hideCur = () => { if (_cur) _cur.style.display = 'none'; };
+
+    editable.addEventListener('dragover', e => {
+        const types = e.dataTransfer.types;
+        if (!types || !Array.from(types).includes('text/plain')) return;
+        const under = document.elementFromPoint(e.clientX, e.clientY);
+        if (under?.closest('td,th,table')) return; // bloquear sobre tablas
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        _showCur(e.clientX, e.clientY);
+    });
+
+    editable.addEventListener('dragleave', e => {
+        if (!editable.contains(e.relatedTarget)) _hideCur();
+    });
+
+    editable.addEventListener('drop', e => {
+        _hideCur();
+        const wrapId = e.dataTransfer.getData('text/plain');
+        if (!wrapId || !wrapId.startsWith('lc-img-')) return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        const wrapper = editable.querySelector(`[data-wrap-id="${wrapId}"]`);
+        if (!wrapper) return;
+
+        /* Bloquear si soltamos sobre una celda */
+        const under = document.elementFromPoint(e.clientX, e.clientY);
+        if (under?.closest('td,th,table')) { wrapper.style.opacity='1'; return; }
+
+        /* Guardar clase de float y clearfix asociado */
+        const wrapCls = ['wrap-left','wrap-right','wrap-none']
+                         .find(c => wrapper.classList.contains(c));
+        const nextEl  = wrapper.nextSibling;
+        const hasCF   = nextEl?.classList?.contains('img-clearfix');
+
+        /* Calcular posición de inserción con caretRangeFromPoint */
+        let range = null;
+        if (document.caretRangeFromPoint) {
+            range = document.caretRangeFromPoint(e.clientX, e.clientY);
+        } else if (document.caretPositionFromPoint) {
+            const cp = document.caretPositionFromPoint(e.clientX, e.clientY);
+            if (cp) { range = document.createRange(); range.setStart(cp.offsetNode, cp.offset); range.collapse(true); }
+        }
+
+        /* Validar que el destino esté dentro del editable y no en una tabla */
+        if (!range || !editable.contains(range.startContainer)) { wrapper.style.opacity='1'; return; }
+        let dn = range.startContainer;
+        if (dn.nodeType === Node.TEXT_NODE) dn = dn.parentElement;
+        if (dn?.closest('td,th,table')) { wrapper.style.opacity='1'; return; }
+
+        /* Quitar wrapper (y su clearfix) del DOM y reinsertar en el range */
+        wrapper.remove();
+        if (hasCF) nextEl.remove();
+        range.insertNode(wrapper);
+
+        /* Restaurar clearfix si tenía float */
+        if (wrapCls && wrapCls !== 'wrap-none') {
+            const cf = document.createElement('div');
+            cf.className = 'img-clearfix';
+            wrapper.parentNode.insertBefore(cf, wrapper.nextSibling);
+        }
+
+        wrapper.style.opacity = '1';
+        wrapper.classList.remove('selected');
+        persistContent();
+    });
+}
+
+/* Aplicar clase de ajuste de texto a la imagen seleccionada */
+function setImgWrap(btn, wrapClass) {
+    const wrapper = btn.closest('.img-resize-wrapper');
+    if (!wrapper) return;
+
+    /* Limpiar clases y estilos inline anteriores */
+    ['wrap-left','wrap-right','wrap-none'].forEach(c => wrapper.classList.remove(c));
+    wrapper.style.cssText = ''; /* dejar que CSS !important maneje el display y float */
+    wrapper.classList.add(wrapClass);
+
+    /* Estado visual de los botones */
+    wrapper.querySelectorAll('.img-ctrl-btn').forEach(b => b.classList.remove('active-wrap'));
+    btn.classList.add('active-wrap');
+
+    if (wrapClass === 'wrap-none') {
+        /* Eliminar clearfix previo si existe */
+        const nx = wrapper.nextSibling;
+        if (nx?.classList?.contains('img-clearfix')) nx.remove();
+    } else {
+        /* Insertar clearfix después del wrapper para cerrar el float */
+        const nx = wrapper.nextSibling;
+        if (!nx?.classList?.contains('img-clearfix')) {
+            const cf = document.createElement('div');
+            cf.className = 'img-clearfix';
+            wrapper.parentNode.insertBefore(cf, wrapper.nextSibling);
+        }
+    }
+    persistContent();
 }
 
 function startResize(e, img, wrapper, label, dir) {
@@ -946,6 +1379,12 @@ function persistContent() {
 }
 
 function insertImage(input) {
+    const note = notes.find(n => n.id === currentId);
+    if (note && note.type !== 'text') {
+        alert('Las imágenes solo se pueden insertar en notas de texto.');
+        input.value = '';
+        return;
+    }
     if (input.files && input.files[0]) {
         const reader = new FileReader();
         reader.onload = function(e) {
@@ -1005,7 +1444,7 @@ function changeNoteFolder(f) {
     const ms = document.getElementById('mobile-move-folder'); if (ms) ms.value = f;
 }
 function closeModal() {
-    document.getElementById('editor-modal').classList.add('hidden');
+    document.getElementById('editor-modal').classList.remove('open-modal');
     document.getElementById('mobile-toolbar-strip')?.classList.add('strip-hidden');
     render();
 }
@@ -1064,14 +1503,15 @@ function openEditor(id) {
     if (note.type === 'table') {
         document.getElementById('excel-tools').classList.remove('hidden');
         document.getElementById('image-tools').classList.add('hidden');
+        document.getElementById('fmt-tools').classList.add('hidden');
         renderExcel(note);
     } else if (note.type === 'html-canvas') {
         document.getElementById('excel-tools').classList.add('hidden');
         document.getElementById('image-tools').classList.add('hidden');
+        document.getElementById('fmt-tools').classList.add('hidden');
+        document.getElementById('txt-color-wrap').style.display = 'none';
         if (!note.lang) note.lang = 'html';
-
         const langOptions = [
-            { val:'html',       label:'HTML',       color:'#e34c26', local:true  },
             { val:'css',        label:'CSS',        color:'#264de4', local:true  },
             { val:'javascript', label:'JavaScript', color:'#f7df1e', local:true  },
             { val:'python',     label:'Python',     color:'#3572A5', local:true  },
@@ -1108,13 +1548,18 @@ function openEditor(id) {
     } else {
         document.getElementById('excel-tools').classList.add('hidden');
         document.getElementById('image-tools').classList.remove('hidden');
-        modalBody.innerHTML = `<div contenteditable="true" data-placeholder="Empieza a escribir..." class="outline-none min-h-[500px] whitespace-pre-wrap text-left !text-left"></div>`;
+        document.getElementById('fmt-tools').classList.remove('hidden');
+        document.getElementById('txt-color-wrap').style.display = '';
+        modalBody.innerHTML = `<div contenteditable="true" data-placeholder="Empieza a escribir..."
+            class="outline-none min-h-[500px]"
+            style="word-wrap:break-word;overflow-wrap:break-word;"></div>`;
         const editable = modalBody.firstChild;
         editable.innerHTML = note.content;
         initImageResize(editable);
+        _registerImgDropTarget(editable);   /* fix duplicado: drop mueve, no clona */
         editable.oninput = (e) => { note.content = e.target.innerHTML; save(); };
     }
-    document.getElementById('editor-modal').classList.remove('hidden');
+    document.getElementById('editor-modal').classList.add('open-modal');
 
     // Mobile toolbar sync
     const isMobile = window.innerWidth < 768;
@@ -1123,11 +1568,26 @@ function openEditor(id) {
         strip.classList.remove('strip-hidden');
         const mobSel = document.getElementById('mobile-move-folder');
         if (mobSel) mobSel.innerHTML = folders.map(f => `<option value="${f}" ${f===note.folder?'selected':''}>📁 ${f}</option>`).join('');
-        const excelBtns = document.getElementById('mob-excel-btns');
-        const imageBtns = document.getElementById('mob-image-btn');
-        if (note.type === 'table')  { if(excelBtns) excelBtns.style.display='flex'; if(imageBtns) imageBtns.style.display='none'; }
-        else if (note.type === 'text') { if(excelBtns) excelBtns.style.display='none'; if(imageBtns) imageBtns.style.display='flex'; }
-        else { if(excelBtns) excelBtns.style.display='none'; if(imageBtns) imageBtns.style.display='none'; }
+        const excelBtns  = document.getElementById('mob-excel-btns');
+        const imageBtns  = document.getElementById('mob-image-btn');
+        const alignBtns  = document.getElementById('mob-align-btns');
+        const colorBtnM  = document.getElementById('mob-txt-color-wrap');
+        if (note.type === 'table') {
+            if(excelBtns) excelBtns.style.display='flex';
+            if(imageBtns) imageBtns.style.display='none';
+            if(alignBtns) alignBtns.style.display='none';
+            if(colorBtnM) colorBtnM.style.display='flex';
+        } else if (note.type === 'text') {
+            if(excelBtns) excelBtns.style.display='none';
+            if(imageBtns) imageBtns.style.display='flex';
+            if(alignBtns) alignBtns.style.display='flex';
+            if(colorBtnM) colorBtnM.style.display='flex';
+        } else {
+            if(excelBtns) excelBtns.style.display='none';
+            if(imageBtns) imageBtns.style.display='none';
+            if(alignBtns) alignBtns.style.display='none';
+            if(colorBtnM) colorBtnM.style.display='none';
+        }
     }
 }
 
@@ -1157,6 +1617,21 @@ function selectCell(r, c, e) {
     activeCell = { r, c };
     document.querySelectorAll('td, th').forEach(el => el.classList.remove('selected-cell'));
     e.currentTarget.classList.add('selected-cell');
+
+    /* Guardar _savedRange apuntando al cell-editor de esta celda,
+       para que execFmt pueda encontrarla incluso cuando el foco
+       se mueve a un botón de la toolbar.                        */
+    const ce = e.currentTarget.querySelector('.cell-editor');
+    if (ce) {
+        ce.focus();
+        const r2 = document.createRange();
+        r2.selectNodeContents(ce);
+        r2.collapse(false); /* cursor al final del contenido */
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(r2);
+        _savedRange = r2.cloneRange();
+    }
 }
 
 function applyColor(colorClass) {
@@ -1173,6 +1648,336 @@ function applyColor(colorClass) {
         save();
     }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   COLOR DE LETRA · NEGRITA · ALINEACIÓN
+   ──────────────────────────────────────────────────────────────
+   _savedRange : último range dentro de un contenteditable.
+                 Se guarda en selectionchange Y en mousedown del
+                 botón de color (antes de que robe el foco).
+   _getActiveEditable() : encuentra el contenteditable correcto,
+                 ya sea la nota de texto o un div.cell-editor.
+══════════════════════════════════════════════════════════════ */
+let _savedRange  = null;
+
+/* ── Guardar el range actual si está dentro de un editable ── */
+function saveSelectionForColor() {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+        const sc = sel.getRangeAt(0).startContainer;
+        const el = sc.nodeType === Node.TEXT_NODE ? sc.parentElement : sc;
+        if (el?.closest('[contenteditable="true"]')) {
+            _savedRange = sel.getRangeAt(0).cloneRange();
+        }
+    }
+}
+
+/* ── Resolver qué contenteditable está activo en este momento ── */
+function _getActiveEditable() {
+    // 1. Desde la selección live
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+        const sc = sel.getRangeAt(0).startContainer;
+        const el = sc.nodeType === Node.TEXT_NODE ? sc.parentElement : sc;
+        const ce = el?.closest('[contenteditable="true"]');
+        if (ce) return ce;
+    }
+    // 2. Desde el range guardado
+    if (_savedRange) {
+        const sc = _savedRange.startContainer;
+        const el = sc.nodeType === Node.TEXT_NODE ? sc.parentElement : sc;
+        const ce = el?.closest('[contenteditable="true"]');
+        if (ce) return ce;
+    }
+    // 3. Fallback: primer editable en modal-body
+    return document.getElementById('modal-body')?.querySelector('[contenteditable="true"]') || null;
+}
+
+/* ── Persistir el HTML del editable activo en la nota ── */
+function _persistCurrentNote(editable) {
+    const note = notes.find(n => n.id === currentId);
+    if (!note) return;
+    if (note.type === 'text') {
+        const ed = document.getElementById('modal-body')?.querySelector('[contenteditable="true"]');
+        if (ed) { note.content = ed.innerHTML; save(); }
+    } else if (note.type === 'table' && activeCell) {
+        const ce = document.querySelector('.selected-cell .cell-editor') || editable;
+        if (ce) { note.content[activeCell.r][activeCell.c] = ce.innerHTML; save(); }
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   applyTextColor(hex)
+   ──────────────────────────────────────────────────────────────
+   CON SELECCIÓN  → execCommand('foreColor') — estándar, fiable.
+   SIN SELECCIÓN  → Inserta <span style="color:hex">​</span>
+                    con un Zero-Width Space (U+200B) y sitúa el
+                    cursor DENTRO del span (offset 1 sobre el ZWS).
+                    Chrome respeta el color de un span padre cuando
+                    se escribe dentro — el truco del ZWS ancla el
+                    estilo sin dejar un carácter visible.
+   En ambos casos se restaura _savedRange antes de actuar, porque
+   el input[type=color] roba el foco y borra la selección activa.
+══════════════════════════════════════════════════════════════ */
+function applyTextColor(hex) {
+    /* 1. Actualizar franja visual bajo la "A" */
+    ['txt-color-bar','mob-txt-color-bar'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.background = hex;
+    });
+
+    const sel      = window.getSelection();
+    const editable = _getActiveEditable();
+    if (!editable) return;
+
+    /* 2. Devolver el foco al editable y restaurar el cursor */
+    editable.focus();
+    if (_savedRange && editable.contains(_savedRange.startContainer)) {
+        try { sel.removeAllRanges(); sel.addRange(_savedRange); } catch(_) {}
+    }
+
+    /* 3. Leer el range actual DESPUÉS de restaurar */
+    const r = sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
+    const hasRealSelection = r && !r.collapsed
+                             && editable.contains(r.commonAncestorContainer);
+
+    if (hasRealSelection) {
+        /* ── Texto seleccionado: foreColor via execCommand ── */
+        document.execCommand('foreColor', false, hex);
+    } else {
+        /* ── Cursor sin selección: span + ZWS con Range API ──
+           NO usamos insertHTML ni execCommand porque dentro de
+           <td contenteditable> en Chrome ambos son poco fiables. */
+        const span = document.createElement('span');
+        span.style.color = hex;
+        const zws = document.createTextNode('\u200B');
+        span.appendChild(zws);
+
+        /* Posición de inserción: cursor actual o final del editable */
+        let insertAt = (r && editable.contains(r.startContainer)) ? r : null;
+        if (!insertAt) {
+            insertAt = document.createRange();
+            insertAt.selectNodeContents(editable);
+            insertAt.collapse(false);
+        }
+        insertAt.deleteContents();
+        insertAt.insertNode(span);
+
+        /* Mover cursor dentro del span, tras el ZWS */
+        const nr = document.createRange();
+        nr.setStart(zws, 1);   // offset 1 = después del U+200B
+        nr.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(nr);
+        _savedRange = nr.cloneRange(); // guardar para el próximo keystroke
+    }
+
+    _persistCurrentNote(editable);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   execFmt(cmd) — Negrita y Alineación (universal)
+   ──────────────────────────────────────────────────────────────
+   GUARD DE TIPO:
+   • Alineación bloqueada en notas tabla y canvas:
+     - tabla  → rompe el layout de las celdas
+     - canvas → el código debe permanecer como texto plano left
+   • Negrita permitida en todos los tipos (no altera estructura).
+
+   PRIORIDAD DE DETECCIÓN para alineación en tabla:
+   1. activeCell existe  → celda marcada con .selected-cell
+   2. _savedRange apunta a td/th → celda por range guardado
+   3. Ninguno → nota de texto normal
+══════════════════════════════════════════════════════════════ */
+function execFmt(cmd) {
+    const sel      = window.getSelection();
+    const isAlign  = cmd.startsWith('justify');
+
+    /* ── GUARD: alineación prohibida en tabla y canvas ── */
+    if (isAlign) {
+        const activeNote = notes.find(n => n.id === currentId);
+        if (activeNote && activeNote.type !== 'text') return;
+    }
+
+    const alignVal = { justifyLeft:'left', justifyCenter:'center',
+                       justifyRight:'right', justifyFull:'justify' }[cmd] || 'left';
+
+    /* ── 1. Detectar contexto: tabla o texto ── */
+
+    /* Caso A: hay una celda activa registrada en el estado global */
+    const inTable = !!activeCell;
+
+    /* Caso B (refuerzo): el savedRange apunta a un editor dentro de td/th */
+    let cellFromRange = null;
+    if (!inTable && _savedRange) {
+        const sc = _savedRange.startContainer;
+        const el = sc.nodeType === Node.TEXT_NODE ? sc.parentElement : sc;
+        cellFromRange = el?.closest('td, th') || null;
+    }
+
+    const isInTable = inTable || !!cellFromRange;
+
+    /* ── 2. Rama TABLA ── */
+    if (isInTable) {
+        if (isAlign) {
+            /* Encontrar la celda del DOM por dos vías */
+            let cellEl = null;
+
+            if (inTable) {
+                /* Preferencia: usar la celda visualmente marcada como selected */
+                cellEl = document.querySelector('.selected-cell');
+                /* Fallback: buscar por índice en la tabla */
+                if (!cellEl && activeCell) {
+                    const rows = document.querySelectorAll('.excel-table tr');
+                    const row  = rows[activeCell.r];
+                    if (row) cellEl = row.cells[activeCell.c] || null;
+                }
+            } else if (cellFromRange) {
+                cellEl = cellFromRange;
+            }
+
+            if (cellEl) {
+                /* Aplicar al div.cell-editor (tiene el texto) y a la <td> (hereda) */
+                const ce = cellEl.querySelector('.cell-editor') || cellEl;
+                ce.style.textAlign  = alignVal;
+                cellEl.style.textAlign = alignVal; // redundante pero garantiza herencia
+                _updateAlignButtons(alignVal);
+
+                /* Persistir: leer HTML actualizado de la celda */
+                const note = notes.find(n => n.id === currentId);
+                if (note && activeCell) {
+                    note.content[activeCell.r][activeCell.c] = ce.innerHTML;
+                    save();
+                }
+            }
+        } else {
+            /* Negrita en celda: devolver el foco al editor de la celda */
+            const ce = document.querySelector('.selected-cell .cell-editor');
+            if (ce) {
+                ce.focus();
+                if (_savedRange && ce.contains(_savedRange.startContainer)) {
+                    try { sel.removeAllRanges(); sel.addRange(_savedRange); } catch(_) {}
+                }
+                document.execCommand(cmd, false, null);
+                /* Persistir */
+                const note = notes.find(n => n.id === currentId);
+                if (note && activeCell) {
+                    note.content[activeCell.r][activeCell.c] = ce.innerHTML;
+                    save();
+                }
+            }
+        }
+        _updateFmtState();
+        return; /* salir — no tocar la lógica de texto */
+    }
+
+    /* ── 3. Rama NOTA DE TEXTO ── */
+    const editable = _getActiveEditable();
+
+    /* Restaurar foco + cursor */
+    if (editable && document.activeElement !== editable) {
+        editable.focus();
+        if (_savedRange && editable.contains(_savedRange.startContainer)) {
+            try { sel.removeAllRanges(); sel.addRange(_savedRange); } catch(_) {}
+        }
+    }
+
+    if (isAlign) {
+        /* execCommand nativo */
+        document.execCommand(cmd, false, null);
+
+        /* Fallback: si el comando no tuvo efecto, aplicar al bloque padre */
+        if (!document.queryCommandState(cmd)) {
+            const sc2  = sel.rangeCount > 0 ? sel.getRangeAt(0).startContainer : null;
+            const nd2  = sc2?.nodeType === Node.TEXT_NODE ? sc2.parentElement : sc2;
+            let block  = nd2;
+            while (block && block !== editable) {
+                if (['block','list-item','flex','grid']
+                    .includes(window.getComputedStyle(block).display)) break;
+                block = block.parentElement;
+            }
+            ((block && block !== editable) ? block : editable)
+                .style.textAlign = alignVal;
+        }
+    } else {
+        document.execCommand(cmd, false, null);
+    }
+
+    _updateFmtState();
+    if (editable) _persistCurrentNote(editable);
+}
+
+/* Actualizar estado visual (active) de Bold y botones de alineación */
+function _updateAlignButtons(alignVal) {
+    const map = { left:'alignL', center:'alignC', right:'alignR' };
+    Object.entries(map).forEach(([val, key]) => {
+        const active = val === alignVal;
+        document.getElementById('btn-' + key)?.classList.toggle('active', active);
+        document.getElementById('mob-btn-' + key)?.classList.toggle('active', active);
+    });
+}
+
+function _updateFmtState() {
+    const isBold = document.queryCommandState('bold');
+    document.getElementById('btn-bold')?.classList.toggle('active', isBold);
+    document.getElementById('mob-btn-bold')?.classList.toggle('active', isBold);
+
+    /* Si la nota activa no es de texto, limpiar todos los botones de
+       alineación sin intentar leer el estado (evita confusión visual) */
+    const activeNote = notes.find(n => n.id === currentId);
+    if (activeNote && activeNote.type !== 'text') {
+        _updateAlignButtons(''); /* ninguno activo */
+        return;
+    }
+
+    /* Para alineación: leer el estado desde el nodo actual */
+    const sel = window.getSelection();
+    const anchor = sel?.anchorNode;
+    const el = anchor?.nodeType === Node.TEXT_NODE ? anchor.parentElement : anchor;
+
+    /* Leer textAlign del bloque más cercano */
+    let detectedAlign = null;
+    if (el) {
+        let block = el;
+        const editable = block.closest?.('[contenteditable="true"]');
+        while (block && block !== editable) {
+            const ta = block.style?.textAlign || window.getComputedStyle(block).textAlign;
+            if (ta && ta !== 'start' && ta !== '') { detectedAlign = ta; break; }
+            block = block.parentElement;
+        }
+        if (!detectedAlign && editable) {
+            detectedAlign = window.getComputedStyle(editable).textAlign;
+        }
+    }
+
+    /* Fallback a execCommand state */
+    if (!detectedAlign) {
+        if (document.queryCommandState('justifyCenter'))     detectedAlign = 'center';
+        else if (document.queryCommandState('justifyRight')) detectedAlign = 'right';
+        else detectedAlign = 'left';
+    }
+
+    _updateAlignButtons(detectedAlign);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   GUARDAR SELECCIÓN CONTINUAMENTE
+   ──────────────────────────────────────────────────────────────
+   selectionchange se dispara cada vez que el cursor se mueve.
+   Guardamos _savedRange SIEMPRE que el cursor esté en un editable
+   (incluso colapsado) para que applyTextColor tenga siempre la
+   posición correcta aunque el input[type=color] robe el foco.
+══════════════════════════════════════════════════════════════ */
+document.addEventListener('selectionchange', () => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const sc = sel.getRangeAt(0).startContainer;
+    const el = sc.nodeType === Node.TEXT_NODE ? sc.parentElement : sc;
+    if (el?.closest('[contenteditable="true"]')) {
+        _savedRange = sel.getRangeAt(0).cloneRange();
+        _updateFmtState();
+    }
+});
 
 function editCell(r, c, v)  { notes.find(n => n.id === currentId).content[r][c] = v; save(); }
 function updateContent(v)   { notes.find(n => n.id === currentId).content = v; save(); }
@@ -1943,6 +2748,13 @@ function mobileTab(tab) {
 initSupabase();       /* Inicia Supabase y detecta sesión existente */
 showWelcomeOverlay(); /* Muestra bienvenida si no hay sesión ni skip */
 render();             /* Renderiza estado inicial desde LocalStorage */
+
+/* Capturar el range ANTES de que el input[type=color] robe el foco */
+['txt-color-btn','txt-color-wrap'].forEach(id => {
+    document.getElementById(id)?.addEventListener('mousedown', saveSelectionForColor);
+});
 </script>
+
+</div><!-- /app-root -->
 </body>
 </html>
